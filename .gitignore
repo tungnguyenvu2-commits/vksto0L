@@ -31,7 +31,6 @@ Deploy/
 __pycache__/
 
 # Local-only Python scripts (not for headless GitHub Actions)
-post_verifier_ui.py
 migrate_sqlite_to_postgres.py
 test_crawler_basic.py
 crawler_db.py
