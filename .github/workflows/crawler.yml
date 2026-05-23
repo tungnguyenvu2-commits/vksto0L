@@ -2,8 +2,8 @@ name: 🤖 VKS BOT — Tự động cào tin và phân loại
 
 on:
   # Chạy tự động 3 lần/ngày: 8h, 14h, 20h giờ Việt Nam (tương ứng 01:00, 07:00, 13:00 UTC)
-  schedule:
-    - cron: '0 1,7,13 * * *'
+  # schedule:
+  #   - cron: '0 1,7,13 * * *'
 
   # Cho phép chạy thủ công từ tab Actions trên GitHub
   workflow_dispatch:

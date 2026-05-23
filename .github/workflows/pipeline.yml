@@ -1,0 +1,37 @@
+name: VKS Bot Auto Pipeline
+
+on:
+  # schedule:
+  #   # Chạy mỗi 3 giờ một lần (Tương đương 8 lần/ngày. Rất tiết kiệm dung lượng chạy của GitHub Actions free tier)
+  #   - cron: '0 */3 * * *'
+  workflow_dispatch:
+    # Cho phép bấm nút "Run workflow" để chạy thủ công bất cứ lúc nào trên giao diện GitHub
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Run Pipeline
+      env:
+        TELEGRAM_BOT: ${{ secrets.TELEGRAM_BOT }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      run: |
+        python run_pipeline_ci.py
