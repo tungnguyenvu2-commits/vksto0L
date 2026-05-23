@@ -78,7 +78,7 @@ jobs:
           "
 
       # 7. Kích hoạt chạy thử nghiệm Phân loại AI (Classifier)
-      - name: 🤖 Chạy thử classifier_api_github.py
+      - name: 🤖 Chạy thử classifier_hybrid_github.py
         run: |
           echo "🚀 Bắt đầu quét các bài viết chưa phân loại trong DB để phân tích AI..."
-          python classifier_api_github.py
+          python classifier_hybrid_github.py

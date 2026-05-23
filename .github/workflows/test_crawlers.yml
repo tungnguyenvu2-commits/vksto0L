@@ -57,13 +57,13 @@ jobs:
           "
 
       # 6. Chạy thử nghiệm Crawler RSS (Bypass Google Cache)
-      - name: 🕷️ Chạy thử test_crawler_github.py (RSS)
+      - name: 🕷️ Chạy thử test_crawl_github.py (RSS)
         run: |
           echo "🚀 Bắt đầu quét tin tức từ RSS..."
-          python test_crawler_github.py
+          python test_crawl_github.py
 
       # 7. Chạy thử nghiệm Crawler HTML (Bypass Google Cache)
-      - name: 🕸️ Chạy thử non_rss_scraper_github.py (Phi RSS)
+      - name: 🕸️ Chạy thử non_scrapper_github.py (Phi RSS)
         run: |
           echo "🚀 Bắt đầu quét tin tức phi RSS..."
-          python non_rss_scraper_github.py
+          python non_scrapper_github.py
