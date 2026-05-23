@@ -29,3 +29,13 @@ vps_1gb_mode/
 scratch/
 Deploy/
 __pycache__/
+
+# Local-only Python scripts (not for headless GitHub Actions)
+post_verifier_ui.py
+migrate_sqlite_to_postgres.py
+test_crawler_basic.py
+crawler_db.py
+classifier_hybrid.py
+ml_preprocessor.py
+telegram_db_storage.py
+non_rss_scraper.py
