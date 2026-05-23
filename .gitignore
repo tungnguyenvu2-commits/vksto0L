@@ -1,0 +1,32 @@
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+env/
+venv/
+ENV/
+
+# OS artefacts
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Secrets / env files
+*.env
+.env
+
+# Database & Model files
+*.db
+*.pkl
+
+# Keys / certificates
+*.key
+*.pub
+
+# Leftovers / Local directories we do not want to upload
+vps_1gb_mode/
+scratch/
+Deploy/
+.github/
+__pycache__/
