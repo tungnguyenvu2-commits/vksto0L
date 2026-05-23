@@ -208,7 +208,7 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VKS BOT - NVTung-VKSk4-HaNoi</title>
+    <title>VKS BOT - NVTung-VKSKV4-HaNoi</title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -950,14 +950,14 @@ HTML_TEMPLATE = """
                 <span>🏛️ HẬU KIỂM VKS BOT</span>
                 <span class="branding-badge">
                     <span class="badge-icon">👑</span>
-                    <span class="badge-text">1 sản phẩm của NVTung-VKSk4-HaNoi</span>
+                    <span class="badge-text">1 sản phẩm của NVTung-VKSkv4-HaNoi</span>
                 </span>
                 <span class="antigravity-badge">
                     <span class="antigravity-icon">🪐</span>
                     <span class="antigravity-text">Powered by Gemini-Antigravity</span>
                 </span>
             </h1>
-            <p>Hệ thống phê duyệt báo cáo vi phạm theo Nghị quyết số 205/2025/QH15 | 1 sản phẩm của NVTung-VKSk4-HaNoi</p>
+            <p>Hệ thống phê duyệt báo cáo vi phạm theo Nghị quyết số 205/2025/QH15 | 1 sản phẩm của NVTung-VKSkv4-HaNoi</p>
         </div>
         <div class="header-actions">
             <span id="network-badge" class="article-source" style="background: rgba(16, 185, 129, 0.12); color: var(--success);">ONLINE</span>
