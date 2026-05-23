@@ -1,0 +1,84 @@
+name: 🧪 VKS BOT — Kiểm thử Phân loại AI
+
+on:
+  # Cho phép kích hoạt chạy kiểm thử thủ công từ giao diện GitHub Actions bất kỳ lúc nào
+  workflow_dispatch:
+
+jobs:
+  test-classifier:
+    name: Kiểm thử Phân loại AI
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      DATABASE_URL:     ${{ secrets.DATABASE_URL }}
+      GEMINI_API_KEY:   ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_MODEL:     gemma-4-31b-it
+      PYTHONIOENCODING: utf-8
+
+    steps:
+      # 1. Checkout mã nguồn
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Cài đặt Python
+      - name: 🐍 Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      # 3. Cài đặt dependencies từ requirements.txt
+      - name: 📦 Cài đặt thư viện Python
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # 4. Tải dữ liệu NLTK bổ trợ
+      - name: 📚 Tải NLTK data
+        run: |
+          python -c "import nltk; nltk.download('punkt', quiet=True)"
+
+      # 5. Xác minh kết nối cơ sở dữ liệu PostgreSQL
+      - name: 🔌 Kiểm tra kết nối PostgreSQL
+        run: |
+          python -c "
+          import os, psycopg2
+          url = os.getenv('DATABASE_URL')
+          if not url:
+              print('❌ DATABASE_URL chưa được cấu hình trong GitHub Secrets!')
+              exit(1)
+          try:
+              conn = psycopg2.connect(url)
+              conn.close()
+              print('✅ Kết nối PostgreSQL thành công!')
+          except Exception as e:
+              print(f'❌ Lỗi kết nối PostgreSQL: {e}')
+              exit(1)
+          "
+
+      # 6. Xác minh khóa API Gemini
+      - name: 🔑 Kiểm tra kết nối Gemini API
+        run: |
+          python -c "
+          import os, google.generativeai as genai
+          api_key = os.getenv('GEMINI_API_KEY')
+          if not api_key:
+              print('❌ GEMINI_API_KEY chưa được cấu hình trong GitHub Secrets!')
+              exit(1)
+          try:
+              genai.configure(api_key=api_key)
+              # Thử gửi truy vấn nhỏ đến mô hình để xác thực hạn ngạch và tính năng hoạt động
+              model = genai.GenerativeModel('gemini-1.5-flash')
+              response = model.generate_content('Say hello')
+              print(f'✅ Kết nối Gemini API thành công! Mô hình phản hồi: {response.text.strip()}')
+          except Exception as e:
+              print(f'❌ Lỗi xác thực hoặc kết nối Gemini API: {e}')
+              exit(1)
+          "
+
+      # 7. Kích hoạt chạy thử nghiệm Phân loại AI (Classifier)
+      - name: 🤖 Chạy thử classifier_api_github.py
+        run: |
+          echo "🚀 Bắt đầu quét các bài viết chưa phân loại trong DB để phân tích AI..."
+          python classifier_api_github.py
