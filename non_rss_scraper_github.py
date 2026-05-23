@@ -614,26 +614,56 @@ def scrape_non_rss_source(source):
             }
             safe_print(f"   ➔ [PROXY] Dinh tuyen qua proxy Viet Nam chu dong...")
         
-        response = session.get(url, headers=get_headers(url), proxies=proxies, timeout=20, verify=False)
-        response.encoding = 'utf-8' # Đảm bảo đọc đúng font tiếng Việt
-        
-        # Tự động vượt qua cookie-challenge đặc thù của Báo Lao Động (laodong.vn)
+        response = None
+        conn_err = None
+        try:
+            response = session.get(url, headers=get_headers(url), proxies=proxies, timeout=20, verify=False)
+            response.encoding = 'utf-8' # Đảm bảo đọc đúng font tiếng Việt
+            
+            # Tự động vượt qua cookie-challenge đặc thù của Báo Lao Động (laodong.vn)
+            parsed_url = urllib.parse.urlparse(url)
+            domain = parsed_url.netloc.lower()
+            if "laodong.vn" in domain and 'document.cookie="' in response.text:
+                import re
+                cookie_match = re.search(r'document\.cookie="([^=]+)=([^"]+)"', response.text)
+                if cookie_match:
+                    cookie_name = cookie_match.group(1)
+                    cookie_value = cookie_match.group(2).split(";")[0]
+                    session.cookies.set(cookie_name, cookie_value, domain="laodong.vn")
+                    # Tải lại trang sau khi đã thiết lập Cookie
+                    response = session.get(url, headers=get_headers(url), proxies=proxies, timeout=20, verify=False)
+                    response.encoding = 'utf-8'
+            
+            if response.status_code != 200:
+                raise requests.RequestException(f"HTTP {response.status_code}")
+        except Exception as e:
+            conn_err = e
+            
+        # CƠ CHẾ DỰ PHÒNG: GOOGLE WEB CACHE BYPASS TỰ ĐỘNG CHO NON-RSS HTML
+        if response is None or response.status_code != 200:
+            safe_print(f"⚠️ [Bypass Web Cache] Nguồn {name} lỗi kết nối ({conn_err}). Đang chuyển hướng cào qua Google Cache...")
+            try:
+                cache_url = f"https://webcache.googleusercontent.com/search?q=cache:{url}"
+                cache_headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "vi-VN,vi;q=0.9",
+                    "Referer": "https://www.google.com/"
+                }
+                response = session.get(cache_url, headers=cache_headers, timeout=20, verify=False)
+                response.encoding = 'utf-8'
+                if response.status_code == 200:
+                    safe_print(f"🔮 [Google Cache] Phục hồi kết nối thành công cho {name}!")
+            except Exception as cache_err:
+                conn_err = f"{conn_err} & Cache Lỗi: {cache_err}"
+
+        if response is None or response.status_code != 200:
+            safe_print(f"[LOI] Khong the tai trang {name} hoàn toàn: {conn_err}")
+            return []
+            
+        # Lấy lại domain phòng trường hợp cào qua google cache làm đổi netloc
         parsed_url = urllib.parse.urlparse(url)
         domain = parsed_url.netloc.lower()
-        if "laodong.vn" in domain and 'document.cookie="' in response.text:
-            import re
-            cookie_match = re.search(r'document\.cookie="([^=]+)=([^"]+)"', response.text)
-            if cookie_match:
-                cookie_name = cookie_match.group(1)
-                cookie_value = cookie_match.group(2).split(";")[0]
-                session.cookies.set(cookie_name, cookie_value, domain="laodong.vn")
-                # Tải lại trang sau khi đã thiết lập Cookie
-                response = session.get(url, headers=get_headers(url), proxies=proxies, timeout=20, verify=False)
-                response.encoding = 'utf-8'
-        
-        if response.status_code != 200:
-            safe_print(f"[LOI] Khong the tai trang. Ma trang thai HTTP: {response.status_code}")
-            return []
             
         html = response.text
         articles = []
@@ -710,21 +740,49 @@ def fetch_single_article_summary(article):
                 "https": vietnam_proxy
             }
         
-        art = Article(url, config=config)
-        art.download()
-        if not art.html:
-            return
-        art.parse()
-        art.nlp()
-        summary = art.summary.strip()
-        if summary:
-            article['summary'] = " ".join(summary.split())
-            safe_print(f"🟢 Đã tóm tắt bằng 4k: {article['title'][:45]}...")
-        elif art.text:
-            # Fallback nếu NLP summary trống nhưng có text
-            snippet = " ".join(art.text.split()[:50]) + "..."
-            article['summary'] = snippet
-            safe_print(f"🟢 Đã tóm tắt bằng 4k (lấy đoạn ngắn): {article['title'][:45]}...")
+        # Tải HTML chủ động thông qua requests Session có tích hợp Google Cache Fallback
+        session = requests.Session()
+        session.mount("https://", LegacySSLAdapter())
+        session.mount("http://", LegacySSLAdapter())
+        
+        headers = get_headers(url)
+        r = None
+        conn_err = None
+        try:
+            r = session.get(url, headers=headers, timeout=12, verify=False)
+            if r.status_code != 200:
+                raise requests.RequestException(f"HTTP {r.status_code}")
+        except Exception as e:
+            conn_err = e
+            
+        # CƠ CHẾ DỰ PHÒNG: GOOGLE WEB CACHE CHO ARTICLE
+        if r is None or r.status_code != 200:
+            try:
+                cache_url = f"https://webcache.googleusercontent.com/search?q=cache:{url}"
+                cache_headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "vi-VN,vi;q=0.9",
+                    "Referer": "https://www.google.com/"
+                }
+                r = session.get(cache_url, headers=cache_headers, timeout=12, verify=False)
+            except Exception:
+                r = None
+
+        if r and r.status_code == 200:
+            art = Article(url, config=config)
+            # Truyền trực tiếp HTML đã tải qua proxy hoặc Google Cache vào newspaper để phân tích
+            art.set_html(r.text)
+            art.parse()
+            art.nlp()
+            summary = art.summary.strip()
+            if summary:
+                article['summary'] = " ".join(summary.split())
+                safe_print(f"🟢 Đã tóm tắt bằng 4k: {article['title'][:45]}...")
+            elif art.text:
+                snippet = " ".join(art.text.split()[:50]) + "..."
+                article['summary'] = snippet
+                safe_print(f"🟢 Đã tóm tắt bằng 4k (lấy đoạn ngắn): {article['title'][:45]}...")
     except Exception:
         pass
 

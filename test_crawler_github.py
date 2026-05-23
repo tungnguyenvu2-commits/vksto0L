@@ -120,30 +120,55 @@ def crawl_rss(source_id, source_name, feed_url, limit=10):
             }
             print(f"🌐 [Proxy] Đang định tuyến cào nguồn {source_name} qua Proxy Việt Nam...")
             
-        r = session.get(feed_url, headers=headers, proxies=proxies, timeout=10)
-        
-        # Nếu bị chặn bởi Cloudflare rate-limit, thử lại thông minh
-        if r.status_code in [429, 502, 503, 504]:
-            retry_delay = random.uniform(3.0, 7.0)
-            time.sleep(retry_delay)
+        r = None
+        conn_err = None
+        try:
             r = session.get(feed_url, headers=headers, proxies=proxies, timeout=10)
             
-        # Vượt qua thử thách cookie của Báo Lao Động nếu gặp phải
-        if "document.cookie=\"D1N=" in r.text:
-            import re
-            match = re.search(r'document\.cookie="([^"]+)"', r.text)
-            if match:
-                cookie_str = match.group(1)
-                cookie_pair = cookie_str.split(';')[0].split('=')
-                cookie_name = cookie_pair[0].strip()
-                cookie_val = cookie_pair[1].strip()
+            # Nếu bị chặn bởi Cloudflare rate-limit, thử lại thông minh
+            if r.status_code in [429, 502, 503, 504]:
+                retry_delay = random.uniform(3.0, 7.0)
+                time.sleep(retry_delay)
+                r = session.get(feed_url, headers=headers, proxies=proxies, timeout=10)
                 
-                session.headers.update(headers)
-                session.cookies.set(cookie_name, cookie_val, domain="laodong.vn", path="/")
-                r = session.get(feed_url, proxies=proxies, timeout=10)
-                
-        if r.status_code != 200:
-            error_msg = f"Lỗi kết nối HTTP {r.status_code}"
+            # Vượt qua thử thách cookie của Báo Lao Động nếu gặp phải
+            if "document.cookie=\"D1N=" in r.text:
+                import re
+                match = re.search(r'document\.cookie="([^"]+)"', r.text)
+                if match:
+                    cookie_str = match.group(1)
+                    cookie_pair = cookie_str.split(';')[0].split('=')
+                    cookie_name = cookie_pair[0].strip()
+                    cookie_val = cookie_pair[1].strip()
+                    
+                    session.headers.update(headers)
+                    session.cookies.set(cookie_name, cookie_val, domain="laodong.vn", path="/")
+                    r = session.get(feed_url, proxies=proxies, timeout=10)
+            
+            if r.status_code != 200:
+                raise requests.RequestException(f"HTTP {r.status_code}")
+        except Exception as e:
+            conn_err = e
+            
+        # CƠ CHẾ DỰ PHÒNG: GOOGLE WEB CACHE BYPASS TỰ ĐỘNG CHO RSS
+        if r is None or r.status_code != 200:
+            print(f"⚠️ [Bypass Web Cache] Nguồn {source_name} lỗi kết nối ({conn_err}). Đang chuyển hướng cào qua Google Cache...")
+            try:
+                cache_url = f"https://webcache.googleusercontent.com/search?q=cache:{feed_url}"
+                cache_headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "vi-VN,vi;q=0.9",
+                    "Referer": "https://www.google.com/"
+                }
+                r = session.get(cache_url, headers=cache_headers, timeout=12)
+                if r.status_code == 200:
+                    print(f"🔮 [Google Cache] Phục hồi kết nối thành công cho {source_name}!")
+            except Exception as cache_err:
+                conn_err = f"{conn_err} & Cache Lỗi: {cache_err}"
+
+        if r is None or r.status_code != 200:
+            error_msg = f"Lỗi kết nối hoàn toàn: {conn_err}"
             print(f"❌ {source_name} thất bại: {error_msg}")
             update_source_status(source_id, last_error=error_msg, is_active=1)
             failed_report[source_name] = (feed_url, error_msg)
@@ -232,10 +257,32 @@ def fetch_single_article_summary(article):
         }
         
         # Tải trang
-        r = session.get(url, headers=headers, proxies=proxies, timeout=12)
-        if r.status_code == 200:
+        r = None
+        conn_err = None
+        try:
+            r = session.get(url, headers=headers, proxies=proxies, timeout=12)
+            if r.status_code != 200:
+                raise requests.RequestException(f"HTTP {r.status_code}")
+        except Exception as e:
+            conn_err = e
+            
+        # CƠ CHẾ DỰ PHÒNG: GOOGLE WEB CACHE CHO ARTICLE
+        if r is None or r.status_code != 200:
+            try:
+                cache_url = f"https://webcache.googleusercontent.com/search?q=cache:{url}"
+                cache_headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "vi-VN,vi;q=0.9",
+                    "Referer": "https://www.google.com/"
+                }
+                r = session.get(cache_url, headers=cache_headers, timeout=12)
+            except Exception:
+                r = None
+
+        if r and r.status_code == 200:
             art = Article(url, config=config)
-            # Truyền trực tiếp HTML đã cào thành công qua proxy vào newspaper
+            # Truyền trực tiếp HTML đã cào thành công qua proxy hoặc Google Cache vào newspaper
             art.set_html(r.text)
             art.parse()
             art.nlp()
