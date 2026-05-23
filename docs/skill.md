@@ -105,6 +105,7 @@ Mỗi khi chỉnh sửa bất kỳ tệp tin nào, bạn phải ghi nhận lại
 | **2026-05-23** | **Antigravity (AI)** | `docs/README.md` | Viết lại toàn bộ cẩm nang mô tả mã nguồn chuyên sâu, dọn dẹp triệt để các phần trùng lặp, chuẩn hóa Mermaid diagram cho cả hai môi trường Local và GitHub Actions CI/CD. | **Đồng bộ 100%** |
 | **2026-05-23** | **Antigravity (AI)** | `docs/skill.md` | Khởi tạo và tích hợp 10 luật thực chiến, chuẩn hóa Conventional Commit và bổ sung 02 kỹ năng đặc biệt `/grill-me` và `/caveman`. | **Đồng bộ 100%** |
 | **2026-05-24** | **Antigravity (AI)** | `.github/workflows/test_403_rss.yml` | Khởi tạo workflow độc lập kiểm thử bypass WAF 403 cho 3 trang báo bằng 4 phương thức (Direct, Headers, Web Cache, Translate Proxy). | **Đồng bộ 100%** |
+| **2026-05-24** | **Antigravity (AI)** | `.gitignore`, `docs/README.md` | Gỡ bỏ docs/README.md khỏi Git và đưa vào .gitignore để lưu trữ nội bộ (Local document). | **Đồng bộ 100%** |
 
 ---
 

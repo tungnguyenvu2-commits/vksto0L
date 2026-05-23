@@ -39,3 +39,6 @@ classifier_hybrid.py
 ml_preprocessor.py
 telegram_db_storage.py
 non_rss_scraper.py
+
+# Local documentation files
+docs/README.md
