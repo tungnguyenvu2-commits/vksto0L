@@ -983,7 +983,7 @@ HTML_TEMPLATE = """
             <div id="stat-rejected-val" class="stat-value">0</div>
         </div>
         <div class="stat-card">
-            <span class="stat-title">Tổng Tin Khớp AI</span>
+            <span class="stat-title">Tổng Tin Khớp</span>
             <div id="stat-total-val" class="stat-value">0</div>
         </div>
     </div>
@@ -1052,7 +1052,7 @@ HTML_TEMPLATE = """
                 </p>
                 <ul style="font-size: 0.8rem; color: var(--text-muted); padding-left: 15px; display: flex; flex-direction: column; gap: 8px;">
                     <li><strong>Duyệt (Select)</strong>: Đánh dấu tin bài chính xác là vi phạm, sẵn sàng phát đi.</li>
-                    <li><strong>Bỏ qua (Reject)</strong>: Lọc bỏ tin rác hoặc sai sót trong phán quyết của AI.</li>
+                    <li><strong>Bỏ qua (Reject)</strong>: Lọc bỏ tin rác hoặc sai sót trong phán quyết.</li>
                     <li><strong>Hậu kiểm</strong>: Bạn có thể sửa trực tiếp Nội dung trích dẫn (Summary) trước khi duyệt.</li>
                     <li><strong>Bảng Excel</strong>: Mục đã gửi Telegram thiết kế dạng bảng Excel hiện đại giúp bạn dễ dàng theo dõi trực quan và chỉnh sửa nhanh tóm tắt vụ việc.</li>
                 </ul>
@@ -1273,12 +1273,8 @@ HTML_TEMPLATE = """
                             <span>${art.domain_name || 'Không rõ'}</span>
                         </div>
                         <div class="meta-item">
-                            <strong>LÝ DO CỦA AI</strong>
+                            <strong>LÝ DO PHÁT HIỆN</strong>
                             <span style="font-size:0.8rem; color:#f59e0b;">${art.match_reason || 'Không xác định'}</span>
-                        </div>
-                        <div class="meta-item">
-                            <strong>MÔ HÌNH PHÂN LOẠI</strong>
-                            <span style="font-size:0.8rem; color:#818cf8;">${art.classifier_model}</span>
                         </div>
                     </div>
                     
@@ -1345,8 +1341,8 @@ HTML_TEMPLATE = """
                     </td>
                     <td class="excel-title-cell">
                         <a href="${art.url}" target="_blank" title="Xem bài viết gốc">${art.title}</a>
-                        <div style="font-size: 0.72rem; color: var(--warning); margin-top: 4px; line-height: 1.3;" title="AI Match Reason">
-                            🔍 <i>AI: ${art.match_reason || 'Khớp từ khóa'}</i>
+                        <div style="font-size: 0.72rem; color: var(--warning); margin-top: 4px; line-height: 1.3;" title="Lý do khớp">
+                            🔍 <i>${art.match_reason || 'Khớp từ khóa'}</i>
                         </div>
                     </td>
                     <td>
@@ -1822,6 +1818,10 @@ def telegram_api(id):
             return ""
         # Loại bỏ các thẻ HTML để tránh lỗi định dạng
         clean_text = re.sub(r'<[^>]+>', '', text)
+        # Loại bỏ hoàn toàn chữ AI hoặc A.I độc lập để tuyệt đối không xuất hiện
+        clean_text = re.sub(r'\[\s*(AI|A\.I)\s*\]\s*', '', clean_text)
+        clean_text = re.sub(r'\b(AI|A\.I)\b\s*(:|-)?\s*', '', clean_text)
+        clean_text = re.sub(r'\s+', ' ', clean_text).strip()
         return html.escape(clean_text)
         
     safe_title = clean_and_escape(article["title"])
@@ -1843,7 +1843,7 @@ def telegram_api(id):
         f"🔗 <b>Link bài viết</b>: {safe_url}\n"
         f"📰 <b>Nguồn</b>: {safe_source}\n"
         f"⚖️ <b>Lĩnh vực bảo vệ</b>: {safe_domain}\n"
-        f"🔍 <b>Lý do AI phát hiện</b>: {safe_reason}\n"
+        f"🔍 <b>Lý do phát hiện</b>: {safe_reason}\n"
         "──────────────────────────\n"
         f"✍️ <b>Tóm tắt sự kiện</b> (Đã kiểm duyệt):\n"
         f"<i>{safe_summary}</i>"
@@ -1948,6 +1948,10 @@ def batch_telegram_api():
             if not text:
                 return ""
             clean_text = re.sub(r'<[^>]+>', '', text)
+            # Loại bỏ hoàn toàn chữ AI hoặc A.I độc lập để tuyệt đối không xuất hiện
+            clean_text = re.sub(r'\[\s*(AI|A\.I)\s*\]\s*', '', clean_text)
+            clean_text = re.sub(r'\b(AI|A\.I)\b\s*(:|-)?\s*', '', clean_text)
+            clean_text = re.sub(r'\s+', ' ', clean_text).strip()
             return html.escape(clean_text)
             
         safe_title = clean_and_escape(article["title"])
@@ -1968,7 +1972,7 @@ def batch_telegram_api():
             f"🔗 <b>Link bài viết</b>: {safe_url}\n"
             f"📰 <b>Nguồn</b>: {safe_source}\n"
             f"⚖️ <b>Lĩnh vực bảo vệ</b>: {safe_domain}\n"
-            f"🔍 <b>Lý do AI phát hiện</b>: {safe_reason}\n"
+            f"🔍 <b>Lý do phát hiện</b>: {safe_reason}\n"
             "──────────────────────────\n"
             f"✍️ <b>Tóm tắt sự kiện</b> (Đã kiểm duyệt):\n"
             f"<i>{safe_summary}</i>"
