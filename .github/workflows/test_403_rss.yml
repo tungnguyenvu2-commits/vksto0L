@@ -1,0 +1,139 @@
+name: WAF 403 & Google Translate Proxy Bypass Test
+
+on:
+  workflow_dispatch: # Kích hoạt thủ công qua giao diện GitHub
+  schedule:
+    - cron: '0 0 * * 0' # Chạy tự động vào lúc 00:00 Chủ Nhật hàng tuần
+
+jobs:
+  test_waf_bypass:
+    name: WAF Bypass Strategy Tester
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests urllib3
+
+      - name: Run connection tests & generate WAF report
+        shell: python
+        run: |
+          import os
+          import requests
+          import urllib3
+
+          urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+          # Danh sách nguồn RSS cần kiểm thử bypass WAF 403
+          targets = {
+              "Quyết chiến (qdnd.vn)": "https://www.qdnd.vn/rss/tin-moi-nhat.rss",
+              "Kinh tế Môi trường (kinhtemoitruong.vn)": "https://kinhtemoitruong.vn/rss/tin-moi-nhat.rss",
+              "Hà Nội Mới (hanoimoi.vn)": "http://hanoimoi.vn/rss/tin-moi-nhat.rss"
+          }
+
+          results = []
+
+          for name, url in targets.items():
+              res_direct = "Error"
+              res_spoof = "Error"
+              res_cache = "Error"
+              res_trans = "Error"
+              
+              # 1. Kết nối trực tiếp (Direct Connection)
+              try:
+                  r = requests.get(url, timeout=10)
+                  res_direct = f"{r.status_code}"
+              except Exception as e:
+                  res_direct = type(e).__name__
+                  
+              # 2. Giả lập WAF Headers (User-Agent Spoofing & Referer)
+              try:
+                  headers = {
+                      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+                      "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
+                      "Referer": "https://www.google.com/"
+                  }
+                  r = requests.get(url, headers=headers, timeout=10, verify=False)
+                  res_spoof = f"{r.status_code}"
+              except Exception as e:
+                  res_spoof = type(e).__name__
+                  
+              # 3. Google Web Cache Bypass
+              try:
+                  cache_url = f"https://webcache.googleusercontent.com/search?q=cache:{url}"
+                  headers = {
+                      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                  }
+                  r = requests.get(cache_url, headers=headers, timeout=10)
+                  res_cache = f"{r.status_code}"
+              except Exception as e:
+                  res_cache = type(e).__name__
+                  
+              # 4. Google Translate Proxy Bypass
+              try:
+                  translate_url = f"https://translate.google.com/translate?sl=auto&tl=vi&u={url}"
+                  headers = {
+                      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                  }
+                  r = requests.get(translate_url, headers=headers, timeout=10)
+                  if r.status_code == 200:
+                      if "Google Translate cannot connect" in r.text or "không thể kết nối" in r.text.lower():
+                          res_trans = "200 (Proxy OK, Fetch Failed)"
+                      else:
+                          res_trans = "200 (Success)"
+                  else:
+                      res_trans = f"{r.status_code}"
+              except Exception as e:
+                  res_trans = type(e).__name__
+                  
+              results.append({
+                  "name": name,
+                  "direct": res_direct,
+                  "spoof": res_spoof,
+                  "cache": res_cache,
+                  "trans": res_trans
+              })
+
+          # Tạo bảng Markdown cho Job Step Summary
+          markdown = """# 📊 Báo Cáo Kiểm Thử Kết Nối & Bypass WAF 403
+
+Báo cáo chi tiết về khả năng tiếp cận các nguồn tin RSS từ hạ tầng GitHub Actions Runner.
+
+| Trang Báo điện tử | Kết nối Trực tiếp | Giả lập Headers | Google Web Cache | Google Translate Proxy |
+| :--- | :---: | :---: | :---: | :---: |
+"""
+
+          for res in results:
+              def format_status(status):
+                  if "200" in status or "Success" in status:
+                      return f"🟢 `{status}`"
+                  elif "403" in status:
+                      return f"🔴 `{status}`"
+                  else:
+                      return f"⚠️ `{status}`"
+                      
+              markdown += f"| **{res['name']}** | {format_status(res['direct'])} | {format_status(res['spoof'])} | {format_status(res['cache'])} | {format_status(res['trans'])} |\n"
+
+          markdown += """
+> [!NOTE]
+> * **Kết nối Trực tiếp**: Gửi yêu cầu sử dụng IP thô của Runner (rất dễ bị WAF chặn 403).
+> * **Giả lập Headers**: Custom User-Agent & Referer của trình duyệt thông dụng để vượt bộ lọc cơ bản.
+> * **Google Web Cache / Google Translate Proxy**: Tận dụng hạ tầng IP siêu sạch của Google làm proxy trung gian để bypass tường lửa Cloudflare/WAF của trang báo đích.
+"""
+
+          # Xuất báo cáo ra step summary
+          if "GITHUB_STEP_SUMMARY" in os.environ:
+              with open(os.environ["GITHUB_STEP_SUMMARY"], "w", encoding="utf-8") as f:
+                  f.write(markdown)
+          else:
+              print(markdown)
