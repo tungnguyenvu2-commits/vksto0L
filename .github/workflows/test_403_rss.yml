@@ -89,39 +89,50 @@ jobs:
               
               r = None
               conn_err = None
+              direct_success = False
               
-              # Thử kết nối trực tiếp trước
+              # 1. Thử kết nối trực tiếp trước
               try:
                   r = session.get(feed_url, headers=headers, timeout=10)
-                  if r.status_code != 200:
-                      raise requests.RequestException(f"HTTP {r.status_code}")
-              except Exception as e:
-                  conn_err = e
+                  if r.status_code == 200:
+                      # Kiểm tra xem có thực sự là XML/RSS không
+                      text_lower = r.text.lower()
+                      if "<rss" in text_lower or "<feed" in text_lower or "<xml" in text_lower:
+                          xml_content = clean_xml_content(r.text.lstrip('\ufeff').strip())
+                          feed = feedparser.parse(xml_content)
+                          if feed.entries:
+                              direct_success = True
+                              return feed.entries, False, "Success"
                   
-              # Dự phòng Google Web Cache cho RSS
-              rss_bypass = False
-              if r is None or r.status_code != 200:
-                  try:
-                      cache_url = f"https://webcache.googleusercontent.com/search?q=cache:{feed_url}"
-                      cache_headers = {
-                          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                          "Accept-Language": "vi-VN,vi;q=0.9",
-                          "Referer": "https://www.google.com/"
-                      }
-                      r = session.get(cache_url, headers=cache_headers, timeout=12)
-                      if r.status_code == 200:
-                          rss_bypass = True
-                  except Exception as ce:
-                      conn_err = f"{conn_err} & Cache Lỗi: {ce}"
-                      
-              if r and r.status_code == 200:
-                  xml_content = clean_xml_content(r.text.lstrip('\ufeff').strip())
-                  feed = feedparser.parse(xml_content)
-                  if feed.entries:
-                      return feed.entries, rss_bypass, "Success"
+                  if not direct_success:
+                      status = r.status_code if r is not None else "Unknown"
+                      conn_err = f"HTTP {status} (Not a valid RSS feed or 0 entries)"
+              except Exception as e:
+                  conn_err = f"{type(e).__name__}: {str(e)}"
+                  
+              # 2. Dự phòng Google Web Cache cho RSS
+              try:
+                  cache_url = f"https://webcache.googleusercontent.com/search?q=cache:{feed_url}"
+                  cache_headers = {
+                      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                      "Accept-Language": "vi-VN,vi;q=0.9",
+                      "Referer": "https://www.google.com/"
+                  }
+                  r_cache = session.get(cache_url, headers=cache_headers, timeout=12)
+                  if r_cache.status_code == 200:
+                      text_cache_lower = r_cache.text.lower()
+                      # Phải thực sự chứa RSS/XML
+                      if "<rss" in text_cache_lower or "<feed" in text_cache_lower or "<xml" in text_cache_lower:
+                          xml_content = clean_xml_content(r_cache.text.lstrip('\ufeff').strip())
+                          feed = feedparser.parse(xml_content)
+                          if feed.entries:
+                              return feed.entries, True, "Success"
+                      conn_err = f"{conn_err} & Cache returned HTML/invalid RSS"
                   else:
-                      return [], rss_bypass, "No Entries"
+                      conn_err = f"{conn_err} & Cache HTTP {r_cache.status_code}"
+              except Exception as ce:
+                  conn_err = f"{conn_err} & Cache Lỗi: {type(ce).__name__}"
                       
               return [], False, f"Failed ({conn_err})"
 
