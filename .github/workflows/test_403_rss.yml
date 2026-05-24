@@ -68,14 +68,20 @@ jobs:
 
           def crawl_rss_feed(source_name, feed_url):
               parsed_domain = urllib.parse.urlparse(feed_url).netloc.lower()
-              headers = {
-                  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                  "Accept-Language": "vi-VN,vi;q=0.9",
-                  "Referer": "https://www.google.com/"
-              }
-              if any(dm in parsed_domain for dm in ["hanoimoi.vn", "kinhtemoitruong.vn"]):
-                  headers["User-Agent"] = "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_patched.html)"
+              if any(dm in parsed_domain for dm in ["hanoimoi.vn", "kinhtemoitruong.vn", "hanoimoi.com.vn"]):
+                  headers = {
+                      "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_patched.html)",
+                      "Accept": "*/*",
+                      "Accept-Language": "vi-VN,vi;q=0.9",
+                      "Connection": "keep-alive"
+                  }
+              else:
+                  headers = {
+                      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+                      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                      "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
+                      "Referer": "https://www.google.com/"
+                  }
                   
               session = requests.Session()
               session.mount("https://", LegacySSLAdapter())
@@ -97,7 +103,13 @@ jobs:
               if r is None or r.status_code != 200:
                   try:
                       cache_url = f"https://webcache.googleusercontent.com/search?q=cache:{feed_url}"
-                      r = session.get(cache_url, headers=headers, timeout=12)
+                      cache_headers = {
+                          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                          "Accept-Language": "vi-VN,vi;q=0.9",
+                          "Referer": "https://www.google.com/"
+                      }
+                      r = session.get(cache_url, headers=cache_headers, timeout=12)
                       if r.status_code == 200:
                           rss_bypass = True
                   except Exception as ce:
@@ -118,17 +130,22 @@ jobs:
               session.mount("https://", LegacySSLAdapter())
               session.mount("http://", LegacySSLAdapter())
               
+              parsed_domain = urllib.parse.urlparse(url).netloc.lower()
+              if any(dm in parsed_domain for dm in ["hanoimoi.vn", "kinhtemoitruong.vn", "hanoimoi.com.vn", "qdnd.vn"]):
+                  user_agent = "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_patched.html)"
+              else:
+                  user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+              
               headers = {
-                  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                  "User-Agent": user_agent,
                   "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                  "Accept-Language": "vi-VN,vi;q=0.9",
-                  "Referer": "https://www.google.com/"
+                  "Accept-Language": "vi-VN,vi;q=0.9"
               }
               
               # 1. Kết nối trực tiếp đến bài viết
               direct_status = "Error"
               try:
-                  r_dir = session.get(url, headers=headers, timeout=8)
+                  r_dir = session.get(url, headers=headers, timeout=12)
                   direct_status = str(r_dir.status_code)
               except Exception as e:
                   direct_status = type(e).__name__
@@ -138,7 +155,13 @@ jobs:
               html_content = None
               try:
                   cache_url = f"https://webcache.googleusercontent.com/search?q=cache:{url}"
-                  r_cache = session.get(cache_url, headers=headers, timeout=10)
+                  cache_headers = {
+                      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                      "Accept-Language": "vi-VN,vi;q=0.9",
+                      "Referer": "https://www.google.com/"
+                  }
+                  r_cache = session.get(cache_url, headers=cache_headers, timeout=12)
                   cache_status = str(r_cache.status_code)
                   if r_cache.status_code == 200:
                       html_content = r_cache.text
@@ -154,6 +177,8 @@ jobs:
                       config = Config()
                       config.language = 'vi'
                       config.request_timeout = 8
+                      config.max_summary_sent = 7
+                      config.user_agent = user_agent
                       
                       art = Article(url, config=config)
                       art.set_html(html_content)
@@ -337,22 +362,11 @@ jobs:
               ('Báo Hà Nội Mới - Pháp luật', 'https://hanoimoi.vn/rss/phap-luat.rss'),
           ]
 
-          # Giới hạn chạy tối đa 15 nguồn tin mẫu (5 từ mỗi nhóm domain) để tối ưu hiệu năng trên CI
-          import random
-          qdnd_targets = [s for s in active_sources if "qdnd.vn" in s[1]]
-          hanoimoi_targets = [s for s in active_sources if "hanoimoi.vn" in s[1]]
-          ktmt_targets = [s for s in active_sources if "kinhtemoitruong.vn" in s[1]]
-          
-          random.seed(42)  # Giữ kết quả lựa chọn ổn định giữa các lần chạy
-          test_targets = random.sample(qdnd_targets, min(5, len(qdnd_targets))) + \
-                         random.sample(hanoimoi_targets, min(5, len(hanoimoi_targets))) + \
-                         random.sample(ktmt_targets, min(5, len(ktmt_targets)))
-
           print(f"🎯 Đã nạp danh sách tĩnh {len(active_sources)} nguồn từ DB.")
-          print(f"⚡ Trích chọn bộ mẫu đại diện {len(test_targets)} nguồn để chạy WAF / NLP test...")
+          print(f"⚡ Đang chạy kiểm thử toàn diện trên toàn bộ {len(active_sources)} nguồn tin để đánh giá tỷ lệ rate-limit...")
           
           results = []
-          for name, url in test_targets:
+          for name, url in active_sources:
               print(f"\n📌 Quét: {name}")
               entries, rss_bypass, rss_msg = crawl_rss_feed(name, url)
               

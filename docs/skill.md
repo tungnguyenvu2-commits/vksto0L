@@ -109,6 +109,7 @@ Mỗi khi chỉnh sửa bất kỳ tệp tin nào, bạn phải ghi nhận lại
 | **2026-05-24** | **Antigravity (AI)** | `.github/workflows/test_403_rss.yml`, `docs/skill.md` | Mở rộng targets lên 15 nguồn, cấu hình workflow_dispatch chạy thủ công, xóa bỏ hoàn toàn schedule cron, xử lý lỗi cú pháp thụt lề YAML bằng textwrap.dedent. | **Đồng bộ 100%** |
 | **2026-05-24** | **Antigravity (AI)** | `.github/workflows/test_403_rss.yml`, `docs/skill.md` | Nâng cấp kịch bản kiểm thử bypass WAF: Tự động tải targets từ `crawler_data.db` (hoặc `DEFAULT_SOURCES`), tích hợp cơ chế `crawl_rss` (Legacy SSL) và tích hợp Newspaper4k NLP để tóm tắt bài viết mới nhất từ Google Web Cache. | **Đồng bộ 100%** |
 | **2026-05-24** | **Antigravity (AI)** | `.github/workflows/test_403_rss.yml`, `docs/skill.md` | Chuyển đổi trích xuất động sang dữ liệu tĩnh: Đọc 160 nguồn RSS từ `crawler_data.db` cục bộ và nhúng trực tiếp dưới dạng từ điển/danh sách Python tĩnh tự chứa trong workflow, kèm cơ chế trích mẫu deterministic thông minh để tối ưu thời gian chạy. | **Đồng bộ 100%** |
+| **2026-05-24** | **Antigravity (AI)** | `.github/workflows/test_403_rss.yml`, `docs/skill.md` | Loại bỏ hoàn toàn cơ chế 'Trích Chọn Bộ Mẫu Đại Diện', chuyển sang kiểm thử tuần tự toàn diện qua tất cả 160+ nguồn tin; đồng thời đồng bộ hóa hoàn hảo các tham số headers, timeouts, và logic Google Web Cache giống hệt `test_crawler_github.py`. | **Đồng bộ 100%** |
 
 ---
 
