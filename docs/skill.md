@@ -105,7 +105,8 @@ Mỗi khi chỉnh sửa bất kỳ tệp tin nào, bạn phải ghi nhận lại
 | **2026-05-23** | **Antigravity (AI)** | `docs/README.md` | Viết lại toàn bộ cẩm nang mô tả mã nguồn chuyên sâu, dọn dẹp triệt để các phần trùng lặp, chuẩn hóa Mermaid diagram cho cả hai môi trường Local và GitHub Actions CI/CD. | **Đồng bộ 100%** |
 | **2026-05-23** | **Antigravity (AI)** | `docs/skill.md` | Khởi tạo và tích hợp 10 luật thực chiến, chuẩn hóa Conventional Commit và bổ sung 02 kỹ năng đặc biệt `/grill-me` và `/caveman`. | **Đồng bộ 100%** |
 | **2026-05-24** | **Antigravity (AI)** | `.github/workflows/test_403_rss.yml` | Khởi tạo workflow độc lập kiểm thử bypass WAF 403 cho 3 trang báo bằng 4 phương thức (Direct, Headers, Web Cache, Translate Proxy). | **Đồng bộ 100%** |
-| **2026-05-24** | **Antigravity (AI)** | `.gitignore`, `post_verifier_ui.py` | Bổ sung post_verifier_ui.py lên GitHub làm giao diện Web duyệt bài dùng chung cho Server và Local. | **Đồng bộ 100%** |
+| **2026-05-24** | **Antigravity (AI)** | `crawler_db.py`, `crawler_db_github.py`, `docs/README.md`, `docs/skill.md` | Tích hợp bổ sung 96 kênh RSS từ Báo Bảo vệ pháp luật (BVPL) và đồng bộ hóa an toàn sang SQLite cục bộ & PostgreSQL đám mây (Render). | **Đồng bộ 100%** |
+| **2026-05-24** | **Antigravity (AI)** | `.github/workflows/test_403_rss.yml`, `docs/skill.md` | Mở rộng danh sách targets lên 15 nguồn tin tiêu biểu, cấu hình workflow_dispatch cho phép chạy thủ công, xử lý lỗi cú pháp thụt lề YAML bằng textwrap.dedent. | **Đồng bộ 100%** |
 
 ---
 
