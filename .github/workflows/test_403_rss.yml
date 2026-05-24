@@ -20,130 +20,270 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests urllib3
+          pip install requests urllib3 feedparser newspaper4k nltk beautifulsoup4 lxml
 
       - name: Run connection tests & generate WAF report
         shell: python
         run: |
           import os
-          import requests
+          import sys
+          import io
+          import time
+          import sqlite3
+          import urllib.parse
           import urllib3
+          import requests
+          import feedparser
+          from bs4 import BeautifulSoup
+          import textwrap
+
+          # Đảm bảo in tiếng Việt chuẩn trên Windows/Actions
+          if hasattr(sys.stdout, 'buffer'):
+              sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
           urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-          # Danh sách nguồn RSS cần kiểm thử bypass WAF 403 (mở rộng lên 15 nguồn tin tiêu biểu)
-          targets = {
-              # 1. Báo Kinh tế Môi trường (kinhtemoitruong.vn)
-              "Kinh tế Môi trường - Tin mới": "https://kinhtemoitruong.vn/rss/tin-moi.rss",
-              "Kinh tế Môi trường - Tiêu điểm": "https://kinhtemoitruong.vn/rss/tieu-diem.rss",
-              "Kinh tế Môi trường - Bình luận": "https://kinhtemoitruong.vn/rss/tieu-diem/binh-luan.rss",
-              "Kinh tế Môi trường - Môi trường xanh": "https://kinhtemoitruong.vn/rss/moi-truong-xanh.rss",
-              "Kinh tế Môi trường - Kinh tế xanh": "https://kinhtemoitruong.vn/rss/kinh-te-xanh.rss",
-              "Kinh tế Môi trường - Phát triển bền vững": "https://kinhtemoitruong.vn/rss/phat-trien-ben-vung.rss",
-              "Kinh tế Môi trường - Chính sách Môi trường": "https://kinhtemoitruong.vn/rss/chinh-sach-moi-truong.rss",
-              # 2. Báo Hà Nội Mới (hanoimoi.vn)
-              "Hà Nội Mới - Tin mới nhất": "http://hanoimoi.vn/rss/tin-moi-nhat.rss",
-              "Hà Nội Mới - Pháp luật": "https://hanoimoi.vn/rss/phap-luat.rss",
-              "Hà Nội Mới - Thời sự": "https://hanoimoi.vn/rss/thoi-su.rss",
-              "Hà Nội Mới - Xã hội": "https://hanoimoi.vn/rss/xa-hoi.rss",
-              # 3. Báo Quân đội Nhân dân (qdnd.vn)
-              "Quân đội Nhân dân - Tin mới nhất": "https://www.qdnd.vn/rss/tin-moi-nhat.rss",
-              "Quân đội Nhân dân - Thời sự": "https://www.qdnd.vn/rss/cate/thoi-su-chinh-tri.rss",
-              "Quân đội Nhân dân - Quốc phòng": "https://www.qdnd.vn/rss/cate/quoc-phong-an-ninh.rss",
-              "Quân đội Nhân dân - Pháp luật": "https://www.qdnd.vn/rss/cate/phap-luat-ky-luat.rss"
-          }
+          # Tải trước nltk data cho Newspaper4k
+          import nltk
+          for pkg in ['punkt', 'punkt_tab']:
+              try:
+                  nltk.data.find(f'tokenizers/{pkg}')
+              except LookupError:
+                  print(f"📥 Đang tải gói dữ liệu NLTK '{pkg}'...")
+                  nltk.download(pkg, quiet=True)
 
-          results = []
+          class LegacySSLAdapter(requests.adapters.HTTPAdapter):
+              def init_poolmanager(self, *args, **kwargs):
+                  ctx = urllib3.util.ssl_.create_urllib3_context()
+                  ctx.check_hostname = False
+                  ctx.options |= 0x40000
+                  kwargs['ssl_context'] = ctx
+                  return super(LegacySSLAdapter, self).init_poolmanager(*args, **kwargs)
 
-          for name, url in targets.items():
-              res_direct = "Error"
-              res_spoof = "Error"
-              res_cache = "Error"
-              res_trans = "Error"
+          def clean_xml_content(content):
+              import re
+              content = re.sub(r'&(?!amp;|lt;|gt;|quot;|apos;)', '&amp;', content)
+              content = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F]', '', content)
+              return content
+
+          def load_target_rss_sources():
+              sources = []
+              db_path = "crawler_data.db"
+              if os.path.exists(db_path):
+                  try:
+                      conn = sqlite3.connect(db_path)
+                      cursor = conn.cursor()
+                      cursor.execute("SELECT source_name, rss_url FROM rss_sources")
+                      rows = cursor.fetchall()
+                      for row in rows:
+                          name, url = row[0], row[1]
+                          if any(dm in url for dm in ["qdnd.vn", "hanoimoi.vn", "kinhtemoitruong.vn"]):
+                              sources.append((name, url))
+                      conn.close()
+                      print(f"📂 Đã tải {len(sources)} nguồn từ SQLite database.")
+                  except Exception as e:
+                      print(f"⚠️ Lỗi đọc SQLite: {e}")
+                      
+              if not sources:
+                  try:
+                      # Import từ crawler_db_github
+                      sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+                      from crawler_db_github import DEFAULT_SOURCES
+                      for name, category, url in DEFAULT_SOURCES:
+                          if any(dm in url for dm in ["qdnd.vn", "hanoimoi.vn", "kinhtemoitruong.vn"]):
+                              sources.append((name, url))
+                      print(f"📂 Fallback: Đã tải {len(sources)} nguồn từ DEFAULT_SOURCES.")
+                  except Exception as e:
+                      print(f"⚠️ Lỗi import DEFAULT_SOURCES: {e}")
+                      
+              return sources
+
+          def crawl_rss_feed(source_name, feed_url):
+              parsed_domain = urllib.parse.urlparse(feed_url).netloc.lower()
+              headers = {
+                  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                  "Accept-Language": "vi-VN,vi;q=0.9",
+                  "Referer": "https://www.google.com/"
+              }
+              if any(dm in parsed_domain for dm in ["hanoimoi.vn", "kinhtemoitruong.vn"]):
+                  headers["User-Agent"] = "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_patched.html)"
+                  
+              session = requests.Session()
+              session.mount("https://", LegacySSLAdapter())
+              session.mount("http://", LegacySSLAdapter())
               
-              # 1. Kết nối trực tiếp (Direct Connection)
+              r = None
+              conn_err = None
+              
+              # Thử kết nối trực tiếp trước
               try:
-                  r = requests.get(url, timeout=10)
-                  res_direct = f"{r.status_code}"
+                  r = session.get(feed_url, headers=headers, timeout=10)
+                  if r.status_code != 200:
+                      raise requests.RequestException(f"HTTP {r.status_code}")
               except Exception as e:
-                  res_direct = type(e).__name__
+                  conn_err = e
                   
-              # 2. Giả lập WAF Headers (User-Agent Spoofing & Referer)
+              # Dự phòng Google Web Cache cho RSS
+              rss_bypass = False
+              if r is None or r.status_code != 200:
+                  try:
+                      cache_url = f"https://webcache.googleusercontent.com/search?q=cache:{feed_url}"
+                      r = session.get(cache_url, headers=headers, timeout=12)
+                      if r.status_code == 200:
+                          rss_bypass = True
+                  except Exception as ce:
+                      conn_err = f"{conn_err} & Cache Lỗi: {ce}"
+                      
+              if r and r.status_code == 200:
+                  xml_content = clean_xml_content(r.text.lstrip('\ufeff').strip())
+                  feed = feedparser.parse(xml_content)
+                  if feed.entries:
+                      return feed.entries, rss_bypass, "Success"
+                  else:
+                      return [], rss_bypass, "No Entries"
+                      
+              return [], False, f"Failed ({conn_err})"
+
+          def test_article_bypass_and_nlp(url):
+              session = requests.Session()
+              session.mount("https://", LegacySSLAdapter())
+              session.mount("http://", LegacySSLAdapter())
+              
+              headers = {
+                  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                  "Accept-Language": "vi-VN,vi;q=0.9",
+                  "Referer": "https://www.google.com/"
+              }
+              
+              # 1. Kết nối trực tiếp đến bài viết
+              direct_status = "Error"
               try:
-                  headers = {
-                      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
-                      "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
-                      "Referer": "https://www.google.com/"
-                  }
-                  r = requests.get(url, headers=headers, timeout=10, verify=False)
-                  res_spoof = f"{r.status_code}"
+                  r_dir = session.get(url, headers=headers, timeout=8)
+                  direct_status = str(r_dir.status_code)
               except Exception as e:
-                  res_spoof = type(e).__name__
+                  direct_status = type(e).__name__
                   
-              # 3. Google Web Cache Bypass
+              # 2. Kết nối qua Google Web Cache (Trọng tâm tối ưu hóa)
+              cache_status = "Error"
+              html_content = None
               try:
                   cache_url = f"https://webcache.googleusercontent.com/search?q=cache:{url}"
-                  headers = {
-                      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                  }
-                  r = requests.get(cache_url, headers=headers, timeout=10)
-                  res_cache = f"{r.status_code}"
+                  r_cache = session.get(cache_url, headers=headers, timeout=10)
+                  cache_status = str(r_cache.status_code)
+                  if r_cache.status_code == 200:
+                      html_content = r_cache.text
               except Exception as e:
-                  res_cache = type(e).__name__
+                  cache_status = type(e).__name__
                   
-              # 4. Google Translate Proxy Bypass
-              try:
-                  translate_url = f"https://translate.google.com/translate?sl=auto&tl=vi&u={url}"
-                  headers = {
-                      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                  }
-                  r = requests.get(translate_url, headers=headers, timeout=10)
-                  if r.status_code == 200:
-                      if "Google Translate cannot connect" in r.text or "không thể kết nối" in r.text.lower():
-                          res_trans = "200 (Proxy OK, Fetch Failed)"
+              # 3. Trích xuất NLP Newspaper4k bằng dữ liệu cào được
+              nlp_status = "Skipped"
+              summary_len = 0
+              if html_content:
+                  try:
+                      from newspaper import Article, Config
+                      config = Config()
+                      config.language = 'vi'
+                      config.request_timeout = 8
+                      
+                      art = Article(url, config=config)
+                      art.set_html(html_content)
+                      art.parse()
+                      art.nlp()
+                      
+                      if art.summary:
+                          nlp_status = "Success"
+                          summary_len = len(art.summary)
+                      elif art.text:
+                          nlp_status = "Text Only"
+                          summary_len = len(art.text)
                       else:
-                          res_trans = "200 (Success)"
-                  else:
-                      res_trans = f"{r.status_code}"
-              except Exception as e:
-                  res_trans = type(e).__name__
+                          nlp_status = "Empty Content"
+                  except Exception as e:
+                      nlp_status = f"NLP Lỗi ({type(e).__name__})"
+                      
+              return direct_status, cache_status, nlp_status, summary_len
+
+          # Khởi động quy trình test
+          active_sources = load_target_rss_sources()
+          print(f"🎯 Bắt đầu kiểm thử cho {len(active_sources)} nguồn tin...")
+          
+          results = []
+          for name, url in active_sources:
+              print(f"\n📌 Quét: {name}")
+              entries, rss_bypass, rss_msg = crawl_rss_feed(name, url)
+              
+              latest_art_title = "N/A"
+              latest_art_url = "N/A"
+              dir_status = "N/A"
+              cache_status = "N/A"
+              nlp_status = "N/A"
+              nlp_len = 0
+              
+              if entries:
+                  entry = entries[0]
+                  latest_art_title = entry.get('title', 'Không có tiêu đề')
+                  latest_art_url = entry.get('link', '')
+                  print(f"   📰 Bài viết mới nhất: \"{latest_art_title}\"")
+                  print(f"   🔗 URL: {latest_art_url}")
+                  
+                  # Chạy test bài viết
+                  dir_status, cache_status, nlp_status, nlp_len = test_article_bypass_and_nlp(latest_art_url)
+              else:
+                  print(f"   ⚠️ RSS Feed không có bài viết hoặc lỗi kết nối: {rss_msg}")
                   
               results.append({
-                  "name": name,
-                  "direct": res_direct,
-                  "spoof": res_spoof,
-                  "cache": res_cache,
-                  "trans": res_trans
+                  "feed_name": name,
+                  "rss_url": url,
+                  "rss_status": "🟢 Google Cache" if rss_bypass else ("🟢 Direct" if rss_msg == "Success" else f"🔴 {rss_msg}"),
+                  "article_title": latest_art_title[:60] + "..." if len(latest_art_title) > 60 else latest_art_title,
+                  "article_url": latest_art_url,
+                  "article_direct": dir_status,
+                  "article_cache": cache_status,
+                  "nlp_status": nlp_status,
+                  "nlp_len": nlp_len
               })
-
-          # Tạo bảng Markdown cho Job Step Summary
+              time.sleep(1.0) # Tránh spam request
+              
+          # Tạo bảng báo cáo Markdown chuyên sâu
           import textwrap
           markdown = textwrap.dedent("""\
-              # 📊 Báo Cáo Kiểm Thử Kết Nối & Bypass WAF 403
+              # 📊 Báo Cáo Kiểm Thử WAF & Tích Hợp Newspaper4k NLP Chuyên Sâu
 
-              Báo cáo chi tiết về khả năng tiếp cận các nguồn tin RSS từ hạ tầng GitHub Actions Runner.
+              Báo cáo chi tiết về khả năng tiếp cận RSS và trích xuất nội dung bài viết qua hạ tầng GitHub Actions Runner.
 
-              | Trang Báo điện tử | Kết nối Trực tiếp | Giả lập Headers | Google Web Cache | Google Translate Proxy |
-              | :--- | :---: | :---: | :---: | :---: |
+              | Nguồn RSS | Trạng thái RSS | Bài viết Mới nhất | Bài viết Direct | Bài viết Google Cache | Trích xuất NLP 4k |
+              | :--- | :---: | :--- | :---: | :---: | :---: |
           """)
-
+          
           for res in results:
-              def format_status(status):
-                  if "200" in status or "Success" in status:
+              def format_waf(status):
+                  if "200" in status:
                       return f"🟢 `{status}`"
                   elif "403" in status:
                       return f"🔴 `{status}`"
+                  elif "N/A" in status:
+                      return "`N/A`"
                   else:
                       return f"⚠️ `{status}`"
                       
-              markdown += f"| **{res['name']}** | {format_status(res['direct'])} | {format_status(res['spoof'])} | {format_status(res['cache'])} | {format_status(res['trans'])} |\n"
+              def format_nlp(status, length):
+                  if "Success" in status:
+                      return f"🟢 `{status}` ({length} ký tự)"
+                  elif "Text" in status:
+                      return f"🟡 `{status}` ({length} ký tự)"
+                  elif "N/A" in status:
+                      return "`N/A`"
+                  else:
+                      return f"🔴 `{status}`"
+
+              markdown += f"| **{res['feed_name']}** | {res['rss_status']} | [{res['article_title']}]({res['article_url']}) | {format_waf(res['article_direct'])} | {format_waf(res['article_cache'])} | {format_nlp(res['nlp_status'], res['nlp_len'])} |\n"
 
           markdown += textwrap.dedent("""
-              > [!NOTE]
-              > * **Kết nối Trực tiếp**: Gửi yêu cầu sử dụng IP thô của Runner (rất dễ bị WAF chặn 403).
-              > * **Giả lập Headers**: Custom User-Agent & Referer của trình duyệt thông dụng để vượt bộ lọc cơ bản.
-              > * **Google Web Cache / Google Translate Proxy**: Tận dụng hạ tầng IP siêu sạch của Google làm proxy trung gian để bypass tường lửa Cloudflare/WAF của trang báo đích.
+              > [!IMPORTANT]
+              > * **Cơ chế Google Web Cache**: Hoạt động như một proxy trung gian siêu sạch để vượt qua Cloudflare/WAF của các trang báo lớn.
+              > * **Tích hợp Newspaper4k NLP**: Tự động bóc tách nội dung chính, trích xuất text thô và tóm tắt bài viết (NLP Summary) bằng cách phân tích cú pháp HTML từ Google Cache.
           """)
 
           # Xuất báo cáo ra step summary
