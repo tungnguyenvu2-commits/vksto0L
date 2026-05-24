@@ -2,8 +2,6 @@ name: WAF 403 & Google Translate Proxy Bypass Test
 
 on:
   workflow_dispatch: # Kích hoạt thủ công qua giao diện GitHub
-  schedule:
-    - cron: '0 0 * * 0' # Chạy tự động vào lúc 00:00 Chủ Nhật hàng tuần
 
 jobs:
   test_waf_bypass:
