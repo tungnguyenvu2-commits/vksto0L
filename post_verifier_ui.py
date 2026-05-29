@@ -2256,7 +2256,16 @@ def hotspots_api():
               AND (ca.human_evaluation IS NULL OR ca.human_evaluation = 1)
             ORDER BY mc.created_at DESC
         """)
-        cases = [dict(row) for row in cursor.fetchall()]
+        cases = []
+        for row in cursor.fetchall():
+            d = dict(row)
+            try:
+                d['latitude'] = float(d['latitude']) if d['latitude'] is not None else 0.0
+                d['longitude'] = float(d['longitude']) if d['longitude'] is not None else 0.0
+            except (ValueError, TypeError):
+                d['latitude'] = 0.0
+                d['longitude'] = 0.0
+            cases.append(d)
         conn.close()
 
         if len(cases) < 1:
