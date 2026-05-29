@@ -210,6 +210,9 @@ HTML_TEMPLATE = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VKS BOT - NVTung-VKSKV4-HaNoi</title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Leaflet.js for Hotspot Map -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <style>
         :root {
             --bg-color: hsl(222, 47%, 10%);
@@ -998,6 +1001,8 @@ HTML_TEMPLATE = """
                     <button class="tab-btn" onclick="switchTab('approved')">✅ Được chọn</button>
                     <button class="tab-btn" onclick="switchTab('telegram')">✈️ Đã gửi Telegram</button>
                     <button class="tab-btn" onclick="switchTab('rejected')">❌ Bị loại bỏ</button>
+                    <button class="tab-btn" onclick="switchTab('ihanoi')" id="ihanoi-tab-btn" style="border:1px solid rgba(16,185,129,0.3);">📋 iHanoi / Cổng Dân Số</button>
+                    <button class="tab-btn" onclick="switchTab('hotspot')" id="hotspot-tab-btn">🗺️ Bản đồ Điểm nóng</button>
                 </div>
                 <div class="search-box">
                     <input type="text" id="search-input" placeholder="Tìm kiếm tiêu đề hoặc nguồn..." oninput="handleSearch()">
@@ -1027,6 +1032,35 @@ HTML_TEMPLATE = """
             <!-- List tin bài -->
             <div id="articles-container" class="articles-list">
                 <!-- Nội dung được điền tự động bằng JavaScript -->
+            </div>
+        </div>
+
+        <!-- Hotspot Map Overlay Panel (hidden by default) -->
+        <div id="hotspot-map-panel" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; z-index:9999; background:var(--bg-color); flex-direction:column;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 24px; background:var(--card-bg); border-bottom:1px solid var(--card-border); flex-shrink:0;">
+                <div style="display:flex; align-items:center; gap:14px;">
+                    <span style="font-size:1.5rem;">🗺️</span>
+                    <div>
+                        <h2 style="margin:0; font-size:1.15rem; font-weight:700; color:var(--text-main);">Bản đồ Điểm nóng Vi phạm</h2>
+                        <p style="margin:0; font-size:0.8rem; color:var(--text-muted);">Phát hiện bằng Gemini Map Grounding + Haversine Clustering (Bán kính 150m)</p>
+                    </div>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <div id="hotspot-legend" style="display:flex; align-items:center; gap:16px; font-size:0.8rem; color:var(--text-muted);">
+                        <span><span style="display:inline-block; width:14px; height:14px; background:rgba(239,68,68,0.3); border:2px solid #ef4444; border-radius:50%; margin-right:5px;"></span>Điểm nóng (≥2 vụ)</span>
+                        <span><span style="display:inline-block; width:10px; height:10px; background:#f59e0b; border-radius:50%; margin-right:5px;"></span>Vụ việc đơn lẻ</span>
+                    </div>
+                    <button onclick="closeHotspotMap()" style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); padding:8px 16px; border-radius:8px; cursor:pointer; font-size:0.85rem; font-weight:600;">✕ Đóng</button>
+                </div>
+            </div>
+            <div style="display:flex; flex:1; overflow:hidden;">
+                <div id="hotspot-map" style="flex:1; height:100%;"></div>
+                <div id="hotspot-sidebar" style="width:320px; overflow-y:auto; background:var(--card-bg); border-left:1px solid var(--card-border); padding:16px;">
+                    <h4 style="margin:0 0 12px; color:var(--text-main); font-size:0.95rem;">🔥 Danh sách Điểm nóng</h4>
+                    <div id="hotspot-list" style="display:flex; flex-direction:column; gap:10px;">
+                        <p style="color:var(--text-muted); font-size:0.85rem;">Đang tải dữ liệu...</p>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -1151,9 +1185,136 @@ HTML_TEMPLATE = """
             if (tab === 'approved') activeIdx = 1;
             if (tab === 'telegram') activeIdx = 2;
             if (tab === 'rejected') activeIdx = 3;
+            if (tab === 'ihanoi')  activeIdx = 4;
+            if (tab === 'hotspot') activeIdx = 5;
             document.querySelectorAll(".tab-btn")[activeIdx].classList.add("active");
             
-            fetchArticles();
+            if (tab === 'hotspot') {
+                openHotspotMap();
+            } else {
+                closeHotspotMap();
+                fetchArticles();
+            }
+        }
+
+        // =============================================
+        // HOTSPOT MAP - Leaflet.js Integration
+        // =============================================
+        let hotspotMapInstance = null;
+        let hotspotMarkersLayer = null;
+
+        function openHotspotMap() {
+            const panel = document.getElementById('hotspot-map-panel');
+            panel.style.display = 'flex';
+            document.body.style.overflow = 'hidden';
+
+            // Khởi tạo bản đồ Leaflet nếu chưa có
+            if (!hotspotMapInstance) {
+                hotspotMapInstance = L.map('hotspot-map').setView([21.028511, 105.804817], 13);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                    maxZoom: 19
+                }).addTo(hotspotMapInstance);
+                hotspotMarkersLayer = L.layerGroup().addTo(hotspotMapInstance);
+            }
+
+            // Invalidate size after panel is visible to fix Leaflet rendering
+            setTimeout(() => hotspotMapInstance.invalidateSize(), 100);
+
+            // Tải dữ liệu điểm nóng từ API
+            loadHotspotData();
+        }
+
+        function closeHotspotMap() {
+            const panel = document.getElementById('hotspot-map-panel');
+            panel.style.display = 'none';
+            document.body.style.overflow = '';
+        }
+
+        async function loadHotspotData() {
+            const listEl = document.getElementById('hotspot-list');
+            listEl.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;">⏳ Đang tải...</p>';
+            hotspotMarkersLayer.clearLayers();
+
+            try {
+                const resp = await fetch('/api/hotspots');
+                const data = await resp.json();
+
+                const { hotspots, standalone } = data;
+                listEl.innerHTML = '';
+
+                // Vẽ vòng tròn điểm nóng
+                if (hotspots && hotspots.length > 0) {
+                    hotspots.forEach((hs, idx) => {
+                        const lat = hs.center_lat;
+                        const lon = hs.center_lon;
+
+                        // Vòng tròn cảnh báo màu đỏ
+                        L.circle([lat, lon], {
+                            color: '#ef4444',
+                            fillColor: 'rgba(239,68,68,0.12)',
+                            fillOpacity: 0.5,
+                            weight: 2,
+                            radius: 150
+                        }).addTo(hotspotMarkersLayer);
+
+                        // Marker tâm điểm nóng
+                        const hotIcon = L.divIcon({
+                            html: `<div style="background:#ef4444;color:#fff;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;box-shadow:0 0 12px rgba(239,68,68,0.7);">🔥${hs.size}</div>`,
+                            className: '',
+                            iconSize: [32, 32],
+                            iconAnchor: [16, 16]
+                        });
+
+                        const popupContent = `<div style="font-family:Outfit,sans-serif;min-width:200px;">
+                            <b style="color:#ef4444;">🔥 Điểm nóng #${idx+1}</b><br>
+                            <span style="color:#888;font-size:0.8em;">${hs.size} vụ việc trong bán kính 150m</span><hr style="margin:6px 0;opacity:0.3;">
+                            ${hs.cases.map(c => `<div style="margin:4px 0;"><b>${c.title}</b><br><span style="color:#888;font-size:0.8em;">📍 ${c.formatted_address}</span></div>`).join('')}
+                        </div>`;
+
+                        L.marker([lat, lon], { icon: hotIcon })
+                            .addTo(hotspotMarkersLayer)
+                            .bindPopup(popupContent);
+
+                        // Sidebar card
+                        const mapLink = `https://www.google.com/maps/search/?api=1&query=${lat},${lon}`;
+                        listEl.innerHTML += `
+                            <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:10px;padding:12px;cursor:pointer;" onclick="hotspotMapInstance.setView([${lat},${lon}],17);">
+                                <div style="font-weight:700;color:#ef4444;font-size:0.9rem;">🔥 Điểm nóng #${idx+1} — ${hs.size} vụ</div>
+                                ${hs.cases.map(c => `<div style="font-size:0.78rem;color:var(--text-muted);margin-top:4px;">• ${c.title}</div>`).join('')}
+                                <a href="${mapLink}" target="_blank" style="display:inline-block;margin-top:8px;font-size:0.75rem;color:#6366f1;">📍 Mở Google Maps</a>
+                            </div>`;
+                    });
+
+                    // Zoom về điểm nóng đầu tiên
+                    hotspotMapInstance.setView([hotspots[0].center_lat, hotspots[0].center_lon], 16);
+                } else {
+                    listEl.innerHTML += `<div style="padding:10px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:10px;color:#10b981;font-size:0.85rem;">✅ Chưa phát hiện điểm nóng nào trong bán kính 150m.</div>`;
+                }
+
+                // Vẽ các vụ việc đơn lẻ
+                if (standalone && standalone.length > 0) {
+                    standalone.forEach(c => {
+                        if (!c.latitude || !c.longitude) return;
+                        const singleIcon = L.divIcon({
+                            html: `<div style="background:#f59e0b;color:#fff;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:11px;box-shadow:0 0 8px rgba(245,158,11,0.5);">⚠</div>`,
+                            className: '',
+                            iconSize: [22, 22],
+                            iconAnchor: [11, 11]
+                        });
+                        L.marker([c.latitude, c.longitude], { icon: singleIcon })
+                            .addTo(hotspotMarkersLayer)
+                            .bindPopup(`<b>${c.title}</b><br><span style="color:#888;font-size:0.8em;">📍 ${c.formatted_address || ''}</span>`);
+                    });
+                }
+
+                if (!hotspots || hotspots.length === 0) {
+                    listEl.innerHTML += `<p style="margin-top:10px;color:var(--text-muted);font-size:0.78rem;">${(standalone||[]).length} vụ việc đơn lẻ đã được đánh dấu trên bản đồ.</p>`;
+                }
+
+            } catch (err) {
+                listEl.innerHTML = `<p style="color:#ef4444;font-size:0.85rem;">❌ Lỗi tải dữ liệu: ${err.message}</p>`;
+            }
         }
 
         // Xử lý Tìm Kiếm
@@ -1719,6 +1880,18 @@ def articles_api():
             WHERE ca.human_evaluation = 1 AND ca.telegram_sent = 1
             ORDER BY {order_by}
         ''')
+    elif status == 'ihanoi':
+        # Phản ánh được thu thập từ Cổng Dân Số iHanoi / congdanso (tất cả trạng thái)
+        cursor.execute(f'''
+            SELECT ca.*, ra.source_name, ra.source_type, ra.published_date AS raw_published_date
+            FROM classified_articles ca
+            LEFT JOIN raw_articles ra ON ca.raw_article_id = ra.id
+            WHERE (ra.source_type LIKE '%iHanoi%'
+                OR ra.source_name LIKE '%iHanoi%'
+                OR ra.source_name LIKE '%congdanso%'
+                OR ra.source_type LIKE '%congdanso%')
+            ORDER BY {order_by}
+        ''')
     else:
         # Tin bài bị reject
         cursor.execute(f'''
@@ -2007,6 +2180,67 @@ def batch_telegram_api():
         return jsonify({"success": True, "count": success_count, "errors": errors})
     else:
         return jsonify({"success": False, "error": f"Lỗi gửi tin: {', '.join(errors[:3])}"}), 500
+
+@app.route('/api/hotspots')
+def hotspots_api():
+    """Trả về danh sách các điểm nóng (clusters) và vụ việc đơn lẻ đã geocode."""
+    import sys, math
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, title, summary, url, formatted_address, latitude, longitude, match_reason, published_date
+            FROM matched_cases
+            WHERE is_geocoded = 1
+            ORDER BY created_at DESC
+        """)
+        cases = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+
+        if len(cases) < 1:
+            return jsonify({"hotspots": [], "standalone": []})
+
+        THRESHOLD = 150.0  # mét
+
+        def haversine(lat1, lon1, lat2, lon2):
+            R = 6371000.0
+            p1, p2 = math.radians(lat1), math.radians(lat2)
+            dp = math.radians(lat2 - lat1)
+            dl = math.radians(lon2 - lon1)
+            a = math.sin(dp/2)**2 + math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
+            return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+
+        visited = set()
+        hotspots = []
+        standalone = []
+
+        for i, c1 in enumerate(cases):
+            if c1['id'] in visited:
+                continue
+            cluster = [c1]
+            visited.add(c1['id'])
+            for c2 in cases:
+                if c2['id'] in visited:
+                    continue
+                dist = haversine(c1['latitude'], c1['longitude'], c2['latitude'], c2['longitude'])
+                if dist <= THRESHOLD:
+                    cluster.append(c2)
+                    visited.add(c2['id'])
+
+            if len(cluster) >= 2:
+                hotspots.append({
+                    'center_lat': sum(x['latitude'] for x in cluster) / len(cluster),
+                    'center_lon': sum(x['longitude'] for x in cluster) / len(cluster),
+                    'size': len(cluster),
+                    'cases': cluster
+                })
+            else:
+                standalone.append(c1)
+
+        return jsonify({'hotspots': hotspots, 'standalone': standalone})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 def get_local_ip():
     """Tự động dò tìm IP mạng nội bộ (LAN) đang hoạt động trên máy tính của bạn"""
