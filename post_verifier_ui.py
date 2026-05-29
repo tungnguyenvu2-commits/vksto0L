@@ -1297,14 +1297,27 @@ HTML_TEMPLATE = """
                     standalone.forEach(c => {
                         if (!c.latitude || !c.longitude) return;
                         const singleIcon = L.divIcon({
-                            html: `<div style="background:#f59e0b;color:#fff;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:11px;box-shadow:0 0 8px rgba(245,158,11,0.5);">⚠</div>`,
+                            html: `<div style="background:#06b6d4;color:#fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:bold;box-shadow:0 0 12px rgba(6,182,212,0.85);border:2px solid #fff;">📍</div>`,
                             className: '',
-                            iconSize: [22, 22],
-                            iconAnchor: [11, 11]
+                            iconSize: [24, 24],
+                            iconAnchor: [12, 12]
                         });
+                        
+                        const mapLink = `https://www.google.com/maps/search/?api=1&query=${c.latitude},${c.longitude}`;
+                        const popupContent = `
+                            <div style="font-family:Outfit,sans-serif;min-width:200px;line-height:1.4;">
+                                <b style="color:#06b6d4;font-size:0.95rem;">📍 Phản ánh iHanoi đơn lẻ</b><br>
+                                <span style="font-weight:700;display:block;margin-top:6px;font-size:0.85em;color:var(--text);">${c.title}</span>
+                                <span style="color:#888;font-size:0.8em;display:block;margin-top:4px;">${c.summary || ''}</span>
+                                <hr style="margin:8px 0;opacity:0.3;">
+                                <span style="color:var(--text-muted);font-size:0.78em;display:block;margin-bottom:6px;">🏠 Địa chỉ: ${c.formatted_address || 'Chưa rõ'}</span>
+                                <a href="${mapLink}" target="_blank" style="display:inline-block;background:#06b6d4;color:#fff;font-size:0.75rem;padding:4px 8px;border-radius:4px;text-decoration:none;font-weight:bold;">🗺️ Mở Google Maps</a>
+                            </div>
+                        `;
+                        
                         L.marker([c.latitude, c.longitude], { icon: singleIcon })
                             .addTo(hotspotMarkersLayer)
-                            .bindPopup(`<b>${c.title}</b><br><span style="color:#888;font-size:0.8em;">📍 ${c.formatted_address || ''}</span>`);
+                            .bindPopup(popupContent);
                     });
                 }
 
@@ -1396,7 +1409,7 @@ HTML_TEMPLATE = """
 
                 // Tạo các nút hành động tương ứng với từng Tab
                 let actionsHTML = '';
-                if (currentTab === 'pending') {
+                if (currentTab === 'pending' || currentTab === 'ihanoi') {
                     actionsHTML = `
                         <button class="btn btn-select" onclick="evaluateArticle(${art.id}, 1)">👍 Chọn (Select)</button>
                         <button class="btn btn-reject" onclick="evaluateArticle(${art.id}, 0)">👎 Loại bỏ (Reject)</button>
@@ -1611,7 +1624,7 @@ HTML_TEMPLATE = """
             // Update buttons dynamically based on tab and selection
             let buttonsHTML = '';
             if (selectedIds.size > 0) {
-                if (currentTab === 'pending') {
+                if (currentTab === 'pending' || currentTab === 'ihanoi') {
                     buttonsHTML = `
                         <button class="btn btn-select" onclick="batchEvaluate(1)">👍 Duyệt ${selectedIds.size} bài</button>
                         <button class="btn btn-reject" onclick="batchEvaluate(0)">👎 Loại bỏ ${selectedIds.size} bài</button>
@@ -1688,6 +1701,9 @@ HTML_TEMPLATE = """
                     selectedIds.clear();
                     fetchStats();
                     fetchArticles();
+                    if (window.hotspotMapInstance) {
+                        loadHotspotData();
+                    }
                 } else {
                     showToast("Xử lý hàng loạt thất bại", "danger");
                 }
@@ -1751,6 +1767,9 @@ HTML_TEMPLATE = """
                     showToast(statusVal === 1 ? "Đã duyệt chấp nhận tin bài thành công!" : "Đã loại bỏ tin bài khỏi danh sách!");
                     fetchStats();
                     fetchArticles();
+                    if (window.hotspotMapInstance) {
+                        loadHotspotData();
+                    }
                 } else {
                     showToast("Thao tác thất bại", "danger");
                 }
@@ -1854,12 +1873,16 @@ def articles_api():
     cursor = conn.cursor()
     
     if status == 'pending':
-        # Tin bài khớp nhưng chưa được duyệt
+        # Tin bài khớp nhưng chưa được duyệt — loại trừ nguồn iHanoi/congdanso
         cursor.execute(f'''
             SELECT ca.*, ra.source_name, ra.source_type, ra.published_date AS raw_published_date
             FROM classified_articles ca
             LEFT JOIN raw_articles ra ON ca.raw_article_id = ra.id
             WHERE ca.domain_id > 0 AND ca.human_evaluation IS NULL
+              AND (ra.source_type NOT LIKE '%iHanoi%'
+                AND ra.source_name NOT LIKE '%iHanoi%'
+                AND ra.source_name NOT LIKE '%congdanso%'
+                AND ra.source_type NOT LIKE '%congdanso%')
             ORDER BY {order_by}
         ''')
     elif status == 'approved':
@@ -1881,12 +1904,13 @@ def articles_api():
             ORDER BY {order_by}
         ''')
     elif status == 'ihanoi':
-        # Phản ánh được thu thập từ Cổng Dân Số iHanoi / congdanso (tất cả trạng thái)
+        # Phản ánh từ iHanoi / congdanso CHƯA DUYỆT (duyệt tại tab này)
         cursor.execute(f'''
             SELECT ca.*, ra.source_name, ra.source_type, ra.published_date AS raw_published_date
             FROM classified_articles ca
             LEFT JOIN raw_articles ra ON ca.raw_article_id = ra.id
-            WHERE (ra.source_type LIKE '%iHanoi%'
+            WHERE ca.domain_id > 0 AND ca.human_evaluation IS NULL
+              AND (ra.source_type LIKE '%iHanoi%'
                 OR ra.source_name LIKE '%iHanoi%'
                 OR ra.source_name LIKE '%congdanso%'
                 OR ra.source_type LIKE '%congdanso%')
@@ -1963,12 +1987,32 @@ def telegram_api(id):
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute('''
-        SELECT ca.*, ra.source_name, ra.published_date 
+        SELECT ca.*, ra.source_name, ra.source_type, ra.published_date 
         FROM classified_articles ca
         LEFT JOIN raw_articles ra ON ca.raw_article_id = ra.id
         WHERE ca.id = ?
     ''', (id,))
     article = cursor.fetchone()
+    
+    # Tìm tọa độ địa lý từ matched_cases nếu thuộc nguồn iHanoi/congdanso
+    geo_info = None
+    if article:
+        src_type = (article.get('source_type') or '').lower()
+        src_name = (article.get('source_name') or '').lower()
+        if 'ihanoi' in src_type or 'congdanso' in src_type or 'ihanoi' in src_name or 'congdanso' in src_name:
+            cursor.execute('''
+                SELECT latitude, longitude, formatted_address
+                FROM matched_cases
+                WHERE raw_article_id = ? AND is_geocoded = 1
+                LIMIT 1
+            ''', (article['raw_article_id'],))
+            geo_row = cursor.fetchone()
+            if geo_row and geo_row['latitude'] and geo_row['longitude']:
+                geo_info = {
+                    'lat': geo_row['latitude'],
+                    'lon': geo_row['longitude'],
+                    'address': geo_row['formatted_address'] or ''
+                }
     conn.close()
     
     if not article:
@@ -2021,6 +2065,19 @@ def telegram_api(id):
         f"✍️ <b>Tóm tắt sự kiện</b> (Đã kiểm duyệt):\n"
         f"<i>{safe_summary}</i>"
     )
+    
+    # Đính kèm thông tin địa lý của iHanoi nếu có
+    if geo_info:
+        lat, lon = geo_info['lat'], geo_info['lon']
+        safe_addr = html.escape(geo_info['address'])
+        map_link = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
+        message += (
+            "\n──────────────────────────\n"
+            "📍 <b>Vị trí hiện trường (Gemini Maps)</b>\n"
+            f"   🏠 Địa chỉ: {safe_addr}\n"
+            f"   🗺️ Tọa độ: <code>{lat:.6f}, {lon:.6f}</code>\n"
+            f"   🔗 <a href=\"{map_link}\">Mở trên Google Maps</a>"
+        )
     
     # Gửi qua API Telegram
     telegram_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
@@ -2190,10 +2247,14 @@ def hotspots_api():
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT id, title, summary, url, formatted_address, latitude, longitude, match_reason, published_date
-            FROM matched_cases
-            WHERE is_geocoded = 1
-            ORDER BY created_at DESC
+            SELECT mc.id, mc.title, mc.summary, mc.url, mc.formatted_address,
+                   mc.latitude, mc.longitude, mc.match_reason, mc.published_date,
+                   ca.human_evaluation
+            FROM matched_cases mc
+            LEFT JOIN classified_articles ca ON mc.raw_article_id = ca.raw_article_id
+            WHERE mc.is_geocoded = 1
+              AND (ca.human_evaluation IS NULL OR ca.human_evaluation = 1)
+            ORDER BY mc.created_at DESC
         """)
         cases = [dict(row) for row in cursor.fetchall()]
         conn.close()
