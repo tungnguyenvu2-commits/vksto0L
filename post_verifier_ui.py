@@ -690,6 +690,17 @@ HTML_TEMPLATE = """
             transform: translateY(-2px);
         }
 
+        .btn-copy {
+            background: linear-gradient(135deg, #a855f7, #ec4899);
+            color: #ffffff;
+            box-shadow: 0 4px 10px rgba(168, 85, 247, 0.2);
+        }
+
+        .btn-copy:hover {
+            background: linear-gradient(135deg, #9333ea, #db2777);
+            transform: translateY(-2px);
+        }
+
         .btn-muted {
             background: rgba(255, 255, 255, 0.08);
             color: var(--text-muted);
@@ -1412,15 +1423,18 @@ HTML_TEMPLATE = """
                 if (currentTab === 'pending' || currentTab === 'ihanoi') {
                     actionsHTML = `
                         <button class="btn btn-select" onclick="evaluateArticle(${art.id}, 1)">👍 Chọn (Select)</button>
+                        <button class="btn btn-copy" onclick="copyReport(${art.id})">📋 Copy báo cáo</button>
                         <button class="btn btn-reject" onclick="evaluateArticle(${art.id}, 0)">👎 Loại bỏ (Reject)</button>
                     `;
                 } else if (currentTab === 'approved') {
                     actionsHTML = `
                         <button class="btn btn-tele" onclick="sendToTelegram(${art.id})">✈️ Gửi Telegram</button>
+                        <button class="btn btn-copy" onclick="copyReport(${art.id})">📋 Copy báo cáo</button>
                         <button class="btn btn-muted" onclick="evaluateArticle(${art.id}, 0)">Hủy chọn (Reject)</button>
                     `;
                 } else {
                     actionsHTML = `
+                        <button class="btn btn-copy" onclick="copyReport(${art.id})">📋 Copy báo cáo</button>
                         <button class="btn btn-muted" onclick="evaluateArticle(${art.id}, 1)">Khôi phục duyệt (Select)</button>
                     `;
                 }
@@ -1541,6 +1555,9 @@ HTML_TEMPLATE = """
                             <button class="btn btn-tele" onclick="sendToTelegram(${art.id})" style="padding: 4px 8px; font-size: 0.72rem;" title="Gửi lại Telegram để cập nhật">
                                 🔄 Gửi lại
                             </button>
+                            <button class="btn btn-copy" onclick="copyReport(${art.id})" style="padding: 4px 8px; font-size: 0.72rem;" title="Copy báo cáo vào Clipboard">
+                                📋 Copy
+                            </button>
                             <button class="btn btn-muted" onclick="evaluateArticle(${art.id}, 0)" style="padding: 4px 8px; font-size: 0.72rem; background: var(--danger-glow); color: var(--danger);" title="Bỏ chọn và chuyển vào Bị loại bỏ">
                                 🗑️ Hủy
                             </button>
@@ -1627,20 +1644,24 @@ HTML_TEMPLATE = """
                 if (currentTab === 'pending' || currentTab === 'ihanoi') {
                     buttonsHTML = `
                         <button class="btn btn-select" onclick="batchEvaluate(1)">👍 Duyệt ${selectedIds.size} bài</button>
+                        <button class="btn btn-copy" onclick="batchCopyReport()">📋 Copy ${selectedIds.size} bài</button>
                         <button class="btn btn-reject" onclick="batchEvaluate(0)">👎 Loại bỏ ${selectedIds.size} bài</button>
                     `;
                 } else if (currentTab === 'approved') {
                     buttonsHTML = `
                         <button class="btn btn-tele" onclick="batchSendTelegram()">✈️ Gửi Telegram ${selectedIds.size} bài</button>
+                        <button class="btn btn-copy" onclick="batchCopyReport()">📋 Copy ${selectedIds.size} bài</button>
                         <button class="btn btn-reject" onclick="batchEvaluate(0)">👎 Hủy chọn ${selectedIds.size} bài</button>
                     `;
                 } else if (currentTab === 'telegram') {
                     buttonsHTML = `
                         <button class="btn btn-tele" onclick="batchSendTelegram()">✈️ Gửi lại Tele ${selectedIds.size} bài</button>
+                        <button class="btn btn-copy" onclick="batchCopyReport()">📋 Copy ${selectedIds.size} bài</button>
                         <button class="btn btn-reject" onclick="batchEvaluate(0)" style="background: var(--danger); color: white;">👎 Loại bỏ ${selectedIds.size} bài</button>
                     `;
                 } else {
                     buttonsHTML = `
+                        <button class="btn btn-copy" onclick="batchCopyReport()">📋 Copy ${selectedIds.size} bài</button>
                         <button class="btn btn-select" onclick="batchEvaluate(1)">👍 Khôi phục ${selectedIds.size} bài</button>
                     `;
                 }
@@ -1796,6 +1817,103 @@ HTML_TEMPLATE = """
                 }
             } catch (err) {
                 showToast("Lỗi kết nối máy chủ Telegram", "danger");
+            }
+        }
+
+        // Copy 01 báo cáo vào clipboard
+        async function copyReport(id) {
+            showToast("Đang tạo báo cáo để copy...", "warning");
+            
+            let summaryText = "";
+            const summaryEl = document.getElementById(`summary-${id}`);
+            if (summaryEl) {
+                summaryText = summaryEl.value.trim();
+            } else {
+                const localArt = articlesData.find(a => a.id === id);
+                summaryText = localArt ? (localArt.summary || "") : "";
+            }
+            
+            try {
+                // Tạo báo cáo từ backend
+                const res = await fetch('/api/articles/report-text', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ids: [id], summary_updates: { [id]: summaryText } })
+                });
+                const result = await res.json();
+                if (result.success) {
+                    // Viết vào clipboard
+                    await navigator.clipboard.writeText(result.report_text);
+                    showToast("📋 Đã sao chép 01 báo cáo vào Clipboard thành công!");
+                    
+                    // Tự động đánh dấu duyệt & chuyển tab
+                    await fetch(`/api/articles/${id}/evaluate`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ human_evaluation: 1, summary: summaryText })
+                    });
+                    
+                    await fetch(`/api/articles/${id}/mark-sent`, { method: 'POST' });
+                    
+                    fetchStats();
+                    fetchArticles();
+                } else {
+                    showToast(`Lỗi tạo báo cáo: ${result.error}`, "danger");
+                }
+            } catch (err) {
+                console.error(err);
+                showToast("Lỗi kết nối hoặc trình duyệt chặn quyền ghi Clipboard", "danger");
+            }
+        }
+
+        // Copy hàng loạt báo cáo vào clipboard
+        async function batchCopyReport() {
+            if (selectedIds.size === 0) return;
+            const ids = Array.from(selectedIds);
+            
+            showToast(`Đang tổng hợp ${ids.length} báo cáo...`, "warning");
+            
+            const summaryUpdates = {};
+            ids.forEach(id => {
+                const el = document.getElementById(`summary-${id}`);
+                if (el) {
+                    summaryUpdates[id] = el.value.trim();
+                }
+            });
+            
+            try {
+                const res = await fetch('/api/articles/report-text', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ids: ids, summary_updates: summaryUpdates })
+                });
+                const result = await res.json();
+                if (result.success) {
+                    await navigator.clipboard.writeText(result.report_text);
+                    showToast(`📋 Đã sao chép ${ids.length} báo cáo vào Clipboard thành công!`);
+                    
+                    // Đánh dấu duyệt & đã gửi hàng loạt
+                    await fetch('/api/articles/batch-evaluate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ids: ids, human_evaluation: 1 })
+                    });
+                    
+                    await fetch('/api/articles/batch-mark-sent', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ids: ids })
+                    });
+                    
+                    selectedIds.clear();
+                    fetchStats();
+                    fetchArticles();
+                } else {
+                    showToast(`Lỗi tổng hợp: ${result.error}`, "danger");
+                }
+            } catch (err) {
+                console.error(err);
+                showToast("Lỗi kết nối hoặc trình duyệt chặn quyền ghi Clipboard", "danger");
             }
         }
     </script>
@@ -1997,6 +2115,7 @@ def telegram_api(id):
     # Tìm tọa độ địa lý từ matched_cases nếu thuộc nguồn iHanoi/congdanso
     geo_info = None
     if article:
+        article = dict(article)
         src_type = (article.get('source_type') or '').lower()
         src_name = (article.get('source_name') or '').lower()
         if 'ihanoi' in src_type or 'congdanso' in src_type or 'ihanoi' in src_name or 'congdanso' in src_name:
@@ -2105,6 +2224,115 @@ def telegram_api(id):
     except Exception as e:
         return jsonify({"success": False, "error": f"Lỗi kết nối: {str(e)}"}), 500
 
+@app.route('/api/articles/<int:id>/mark-sent', methods=['POST'])
+def mark_sent_api(id):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE classified_articles SET telegram_sent = 1, human_evaluation = 1 WHERE id = ?", (id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+@app.route('/api/articles/batch-mark-sent', methods=['POST'])
+def batch_mark_sent_api():
+    data = request.json or {}
+    ids = data.get("ids", [])
+    if not ids:
+        return jsonify({"success": False, "error": "Chưa chọn bài viết"}), 400
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    placeholders = ",".join("?" for _ in ids)
+    cursor.execute(f"UPDATE classified_articles SET telegram_sent = 1, human_evaluation = 1 WHERE id IN ({placeholders})", ids)
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+@app.route('/api/articles/report-text', methods=['POST'])
+def report_text_api():
+    data = request.json or {}
+    ids = data.get("ids", [])
+    summary_updates = data.get("summary_updates", {}) or {}
+    
+    if not ids:
+        return jsonify({"success": False, "error": "Chưa chọn bài viết"}), 400
+        
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    placeholders = ",".join("?" for _ in ids)
+    cursor.execute(f'''
+        SELECT ca.*, ra.source_name, ra.source_type, ra.published_date 
+        FROM classified_articles ca
+        LEFT JOIN raw_articles ra ON ca.raw_article_id = ra.id
+        WHERE ca.id IN ({placeholders})
+    ''', ids)
+    articles = [dict(r) for r in cursor.fetchall()]
+    
+    reports = []
+    for article in articles:
+        art_id = str(article["id"])
+        summary = summary_updates.get(art_id) or summary_updates.get(int(art_id)) or article["summary"] or ""
+        
+        # Tiền xử lý để xóa hoàn toàn tag AI
+        import re
+        summary = re.sub(r'\[\s*(AI|A\.I)\s*\]\s*', '', summary)
+        summary = re.sub(r'\b(AI|A\.I)\b\s*(:|-)?\s*', '', summary)
+        summary = re.sub(r'\s+', ' ', summary).strip()
+        
+        # Lấy geo_info nếu có
+        geo_info = None
+        src_type = (article.get('source_type') or '').lower()
+        src_name = (article.get('source_name') or '').lower()
+        if 'ihanoi' in src_type or 'congdanso' in src_type or 'ihanoi' in src_name or 'congdanso' in src_name:
+            cursor.execute('''
+                SELECT latitude, longitude, formatted_address
+                FROM matched_cases
+                WHERE raw_article_id = ? AND is_geocoded = 1
+                LIMIT 1
+            ''', (article['raw_article_id'],))
+            geo_row = cursor.fetchone()
+            if geo_row and geo_row['latitude'] and geo_row['longitude']:
+                geo_info = {
+                    'lat': geo_row['latitude'],
+                    'lon': geo_row['longitude'],
+                    'address': geo_row['formatted_address'] or ''
+                }
+                
+        domain_name = DOMAINS.get(article["domain_id"], "Không xác định")
+        
+        # Định dạng báo cáo văn bản trơn (Plain Text) chuyên nghiệp có cấu trúc để paste thẳng vào Telegram
+        rep = (
+            "🏛️ BÁO CÁO PHÁT HIỆN HẬU KIỂM - VKS BOT 🏛️\n"
+            "──────────────────────────\n"
+            f"📌 Tiêu đề: {article['title']}\n"
+            f"📅 Ngày đăng: {article.get('published_date') or 'Không xác định'}\n"
+            f"🔗 Link bài viết: {article['url'] or ''}\n"
+            f"📰 Nguồn: {article['source_name']}\n"
+            f"⚖️ Lĩnh vực bảo vệ: {domain_name}\n"
+            f"🔍 Lý do phát hiện: {article['match_reason']}\n"
+            "──────────────────────────\n"
+            f"✍️ Tóm tắt sự kiện (Đã kiểm duyệt):\n"
+            f"{summary}"
+        )
+        
+        if geo_info:
+            lat, lon = geo_info['lat'], geo_info['lon']
+            map_link = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
+            rep += (
+                "\n──────────────────────────\n"
+                "📍 Vị trí hiện trường (Gemini Maps)\n"
+                f"   🏠 Địa chỉ: {geo_info['address']}\n"
+                f"   🗺️ Tọa độ: {lat:.6f}, {lon:.6f}\n"
+                f"   🔗 Bản đồ Google Maps: {map_link}"
+            )
+        reports.append(rep)
+        
+    conn.close()
+    
+    combined_text = "\n\n========================================\n\n".join(reports)
+    return jsonify({"success": True, "report_text": combined_text})
+
 @app.route('/api/articles/batch-evaluate', methods=['POST'])
 def batch_evaluate_api():
     data = request.json or {}
@@ -2162,7 +2390,7 @@ def batch_telegram_api():
         LEFT JOIN raw_articles ra ON ca.raw_article_id = ra.id
         WHERE ca.id IN ({placeholders})
     ''', ids)
-    articles = cursor.fetchall()
+    articles = [dict(r) for r in cursor.fetchall()]
     conn.close()
     
     success_count = 0
